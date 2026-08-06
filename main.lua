@@ -15,18 +15,26 @@ local SHIP_BULLET_FRAME_H = 32
 local BULLET_SPEED = 150
 local BULLET_LIFE = 2.0
 local BULLET_MARGIN = 16
-local PLAYER_FIRE_RATE = 0.12
+local PLAYER_FIRE_RATE = 0.5
 
 local ENEMY_FRAME_W = 32
 local ENEMY_FRAME_H = 32
 
-local PLAYER_BULLET_RADIUS = 3
 local ENEMY_BULLET_RADIUS  = 4
 local ENEMY_RADIUS         = 12
-local ENEMY_HP             = 3
-local ENEMY_SPEED          = 60
-local ENEMY_BULLET_SPEED   = 90
-local ENEMY_FIRE_RATE      = 1.2
+local ENEMY_HP             = 2
+local ENEMY_SPEED          = 90
+local ENEMY_BULLET_SPEED   = 100
+local ENEMY_FIRE_RATE      = 1.5
+
+local player_bullets = bullets.new_pool()
+local enemy_bullets  = bullets.new_pool()
+
+local PLAYER_BULLET_RADIUS = 2
+local ENEMY_BULLET_RADIUS  = 3
+local ENEMY_RADIUS         = 9
+
+local debug_hitboxes = false
 
 local spawn_timer = 0
 
@@ -53,8 +61,8 @@ local function clamp(value, low, high)
 end
 
 local function collide_bullets_enemies()
-    for bi = bullets.count(), 1, -1 do
-        local b = bullets.get(bi)
+    for bi = bullets.count(player_bullets), 1, -1 do
+        local b = bullets.get(player_bullets, bi)
         for ei = enemies.count(), 1, -1 do
             local e = enemies.get(ei)
             local dx, dy = b.x - e.x, b.y - e.y
@@ -62,7 +70,7 @@ local function collide_bullets_enemies()
             if dx * dx + dy * dy <= r * r then
                 e.hp = e.hp - 1
                 if e.hp <= 0 then e.dead = true end
-                bullets.remove(bi)
+                bullets.remove(player_bullets, bi)
                 break
             end
         end
@@ -72,11 +80,18 @@ end
 local function update_enemy_fire()
     for i = 1, enemies.count() do
         local e = enemies.get(i)
-        e.fire_timer = e.fire_timer - TICK
-        if e.fire_timer <= 0 then
-            e.fire_timer = ENEMY_FIRE_RATE
-            bullets.spawn(clips.enemy_basic_bullet, e.x, e.y,
-                -ENEMY_BULLET_SPEED, 0, BULLET_LIFE, ENEMY_BULLET_RADIUS)
+        if e.x < screen.width then
+            e.fire_timer = e.fire_timer - TICK
+            if e.fire_timer <= 0 then
+                e.fire_timer = ENEMY_FIRE_RATE
+                local dx, dy = player.x - e.x, player.y - e.y
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len > 0 then
+                    bullets.spawn(enemy_bullets, clips.enemy_basic_bullet, e.x, e.y,
+                        dx / len * ENEMY_BULLET_SPEED, dy / len * ENEMY_BULLET_SPEED,
+                        BULLET_LIFE, ENEMY_BULLET_RADIUS)
+                end
+            end
         end
     end
 end
@@ -104,8 +119,8 @@ function love.load()
     local enemy_image = love.graphics.newImage("assets/enemies.png")
     sheets.enemies = anim.new_sheet(enemy_image, ENEMY_FRAME_W, ENEMY_FRAME_H)
 
-    clips.enemy_basic = anim.new_clip(sheets.enemies, anim.range(1, 4), 12, true)
-    clips.enemy_basic_bullet = anim.new_clip(sheets.enemies, anim.range(7, 10), 12, true)
+    clips.enemy_basic = anim.new_clip(sheets.enemies, anim.range(1, 4), 5, true)
+    clips.enemy_basic_bullet = anim.new_clip(sheets.enemies, anim.range(7, 10), 5, true)
 end
 
 local function fixed_update()
@@ -142,12 +157,14 @@ local function fixed_update()
     player.fire_timer = player.fire_timer - TICK
     if love.keyboard.isDown("z") and player.fire_timer <= 0 then
         player.fire_timer = PLAYER_FIRE_RATE
-        bullets.spawn(clips.basic_bullet, player.x + 14, player.y, BULLET_SPEED, 0, BULLET_LIFE)
+        bullets.spawn(player_bullets, clips.basic_bullet, player.x + 14, player.y,
+            BULLET_SPEED, 0, BULLET_LIFE, PLAYER_BULLET_RADIUS)
     end
 
     update_enemy_fire()
 
-    bullets.update(TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
+    bullets.update(player_bullets, TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
+    bullets.update(enemy_bullets,  TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     enemies.update(TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     collide_bullets_enemies()
 
@@ -163,10 +180,25 @@ function love.update(dt)
 end
 
 function love.draw()
-    screen.begin_draw()
+screen.begin_draw()
         enemies.draw()
-        bullets.draw()
+        bullets.draw(enemy_bullets)
+        bullets.draw(player_bullets)
         anim.draw(player.anim, player.x, player.y)
+
+        if debug_hitboxes then
+            love.graphics.setColor(1, 0.2, 0.2, 0.7)
+            for i = 1, enemies.count() do
+                local e = enemies.get(i)
+                love.graphics.circle("line", e.x, e.y, e.radius)
+            end
+            love.graphics.setColor(0.3, 1, 1, 0.7)
+            for i = 1, bullets.count(player_bullets) do
+                local b = bullets.get(player_bullets, i)
+                love.graphics.circle("line", b.x, b.y, b.radius)
+            end
+            love.graphics.setColor(1, 1, 1, 1)
+        end
     screen.finish_draw()
 end
 
@@ -176,4 +208,5 @@ end
 
 function love.keypressed(key)
     if key == "escape" then love.event.quit() end
+    if key == "f1" then debug_hitboxes = not debug_hitboxes end
 end

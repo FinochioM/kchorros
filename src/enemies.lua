@@ -28,7 +28,7 @@ function enemies.spawn(clip, x, y, vx, vy, hp, radius)
     e.hp       = hp
     e.radius   = radius
     e.dead     = false
-    e.fire_timer = 0
+    e.fire_timer = 0.5
 
     if e.anim then
         anim.play(e.anim, clip, true)
