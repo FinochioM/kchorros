@@ -9,6 +9,8 @@ local player_specials  = require("src.player_specials")
 local enemy_behaviors  = require("src.enemy_behaviors")
 local player_weapons   = require("src.player_weapons")
 local effects = require("src.effects")
+local background = require("src.background")
+local stages     = require("src.stages")
 
 local INV_SQRT2 = 1 / math.sqrt(2)
 local TICK = 1 / 60
@@ -53,6 +55,7 @@ local spawn_timer = 0
 
 local sheets = {}
 local clips  = {}
+local bg = nil
 
 local player = {
     x      = 0,
@@ -221,12 +224,15 @@ local function reset_game()
     anim.play(player.anim, clips.ship_idle, true)
 
     spawn_timer = 0
+    background.reset(bg)
     effects.clear()
 end
 
 function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
     screen.init(480, 360)
+
+    bg = background.new(stages.list[1].layers, screen.width, screen.height)
 
     local ship_image = love.graphics.newImage("assets/ship.png")
     sheets.ship = anim.new_sheet(ship_image, SHIP_FRAME_W, SHIP_FRAME_H)
@@ -275,6 +281,7 @@ function love.load()
 end
 
 local function fixed_update()
+    background.update(bg, TICK)
     if player.flash_timer > 0 then player.flash_timer = player.flash_timer - TICK end
 
     if player.state == "dying" then
@@ -375,6 +382,7 @@ end
 
 function love.draw()
     screen.begin_draw()
+        background.draw(bg)
         enemies.draw()
         bullets.draw(enemy_bullets)
         bullets.draw(player_bullets)
