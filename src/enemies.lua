@@ -12,7 +12,7 @@ local function acquire()
     if not e then
         e = { x = 0, y = 0, vx = 0, vy = 0, hp = 0, radius = 0,
               fire_timer = 0, flash_timer = 0, t = 0, scale = 1,
-              behavior = nil, vars = {}, anim = nil, dead = false }
+              behavior = nil, vars = {}, anim = nil, dead = false, state = "alive" }
         pool[active] = e
     end
     return e
@@ -31,6 +31,7 @@ function enemies.spawn(clip, x, y, vx, vy, hp, radius, behavior, vars, scale)
     e.hp       = hp
     e.radius   = radius
     e.dead     = false
+    e.state    = "alive"
     e.t        = 0
     e.fire_timer  = 0.5
     e.flash_timer = 0
@@ -48,23 +49,38 @@ function enemies.spawn(clip, x, y, vx, vy, hp, radius, behavior, vars, scale)
     return e
 end
 
+function enemies.kill(e, explode_clip, scale)
+    if e.state ~= "alive" then return end
+    e.state    = "dying"
+    e.vx, e.vy = 0, 0
+    e.behavior = nil
+    e.flash_timer = 0
+    e.scale    = scale or 1
+    anim.play(e.anim, explode_clip, true)
+end
+
 function enemies.update(dt, left, top, right, bottom)
     local i = 1
     while i <= active do
         local e = pool[i]
 
-        if e.behavior then e.behavior.update(e, dt) end
-
-        e.x = e.x + e.vx * dt
-        e.y = e.y + e.vy * dt
-        anim.update(e.anim, dt)
-
-        if e.flash_timer > 0 then e.flash_timer = e.flash_timer - dt end
-
-        if e.dead or e.x < left or e.x > right or e.y < top or e.y > bottom then
-            release(i)
+        if e.state == "dying" then
+            anim.update(e.anim, dt)
+            if e.anim.finished then release(i) else i = i + 1 end
         else
-            i = i + 1
+            if e.behavior then e.behavior.update(e, dt) end
+
+            e.x = e.x + e.vx * dt
+            e.y = e.y + e.vy * dt
+            anim.update(e.anim, dt)
+
+            if e.flash_timer > 0 then e.flash_timer = e.flash_timer - dt end
+
+            if e.dead or e.x < left or e.x > right or e.y < top or e.y > bottom then
+                release(i)
+            else
+                i = i + 1
+            end
         end
     end
 end

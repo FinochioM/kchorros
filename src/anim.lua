@@ -90,9 +90,9 @@ end
 
 function anim.update(state, dt)
     local a = state.a
-    if a.status ~= "running" then return end
+    if a.status ~= "playing" then return end
     a:update(dt * state.speed)
-    if a.status ~= "running" then state.finished = true end
+    if a.status ~= "playing" then state.finished = true end
 end
 
 function anim.draw(state, x, y, rotation, scale_x, scale_y)

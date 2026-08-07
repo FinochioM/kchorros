@@ -34,6 +34,11 @@ local ENEMY_BULLET_SPEED   = 110
 local ENEMY_FIRE_RATE      = 1.6
 local ENEMY_SCALE = 1.2
 
+local ENEMY_EXPLODE_FRAME_W = 96
+local ENEMY_EXPLODE_FRAME_H = 96
+local ENEMY_EXPLODE_FPS     = 30
+local ENEMY_EXPLODE_SCALE   = 1
+
 local player_bullets = bullets.new_pool()
 local enemy_bullets  = bullets.new_pool()
 
@@ -87,14 +92,16 @@ local function collide_bullets_enemies()
         local b = bullets.get(player_bullets, bi)
         for ei = enemies.count(), 1, -1 do
             local e = enemies.get(ei)
-            local dx, dy = b.x - e.x, b.y - e.y
-            local r = b.radius + e.radius
-            if dx * dx + dy * dy <= r * r then
-                e.hp = e.hp - 1
-                e.flash_timer = flash.DURATION
-                if e.hp <= 0 then e.dead = true end
-                bullets.remove(player_bullets, bi)
-                break
+            if e.state == "alive" then
+                local dx, dy = b.x - e.x, b.y - e.y
+                local r = b.radius + e.radius
+                if dx * dx + dy * dy <= r * r then
+                    e.hp = e.hp - 1
+                    e.flash_timer = flash.DURATION
+                    if e.hp <= 0 then enemies.kill(e, clips.enemy_explode, ENEMY_EXPLODE_SCALE) end
+                    bullets.remove(player_bullets, bi)
+                    break
+                end
             end
         end
     end
@@ -103,7 +110,7 @@ end
 local function update_enemy_fire()
     for i = 1, enemies.count() do
         local e = enemies.get(i)
-        if e.x < screen.width then
+        if e.state == "alive" and e.x < screen.width then
             e.fire_timer = e.fire_timer - TICK
             if e.fire_timer <= 0 then
                 e.fire_timer = ENEMY_FIRE_RATE
@@ -157,12 +164,14 @@ local function collide_player()
 
     for i = enemies.count(), 1, -1 do
         local e = enemies.get(i)
-        local dx, dy = e.x - player.x, e.y - player.y
-        local r = e.radius + player.radius
-        if dx * dx + dy * dy <= r * r then
-            e.dead = true
-            damage_player()
-            return
+        if e.state == "alive" then
+            local dx, dy = e.x - player.x, e.y - player.y
+            local r = e.radius + player.radius
+            if dx * dx + dy * dy <= r * r then
+                enemies.kill(e, clips.enemy_explode, ENEMY_EXPLODE_SCALE)
+                damage_player()
+                return
+            end
         end
     end
 end
@@ -217,6 +226,13 @@ function love.load()
 
     clips.enemy_basic = anim.new_clip(sheets.enemies, anim.range(1, 4), 5, true)
     clips.enemy_basic_bullet = anim.new_clip(sheets.enemies, anim.range(7, 10), 5, true)
+    
+    local enemy_explosion_image = love.graphics.newImage("assets/enemy_explosion_1.png")
+    sheets.enemy_explosions = anim.new_sheet(enemy_explosion_image,
+        ENEMY_EXPLODE_FRAME_W, ENEMY_EXPLODE_FRAME_H)
+
+    clips.enemy_explode = anim.new_clip(sheets.enemy_explosions,
+        anim.range(1, 46), ENEMY_EXPLODE_FPS, false)
 end
 
 local function fixed_update()
