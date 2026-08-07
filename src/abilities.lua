@@ -25,6 +25,11 @@ function abilities.trigger(set, name, owner)
     local s = set[name]
     s.active = s.def.duration
     if s.def.on_start then s.def.on_start(owner, s) end
+    if s.active <= 0 then -- instant: finish immediately
+        s.active   = 0
+        s.cooldown = s.def.cooldown
+        if s.def.on_finish then s.def.on_finish(owner, s) end
+    end
     return true
 end
 

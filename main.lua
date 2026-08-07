@@ -5,8 +5,10 @@ local enemies = require("src.enemies")
 local flash   = require("src.flash")
 local abilities        = require("src.abilities")
 local player_abilities = require("src.player_abilities")
+local player_specials  = require("src.player_specials")
 local enemy_behaviors  = require("src.enemy_behaviors")
 local player_weapons   = require("src.player_weapons")
+local effects = require("src.effects")
 
 local INV_SQRT2 = 1 / math.sqrt(2)
 local TICK = 1 / 60
@@ -68,9 +70,11 @@ local player = {
     shot   = 1,
     bullet = 1,
     ability_set = abilities.new_set(),
+    special_set = abilities.new_set(),
 }
 
 local dash_pressed         = false
+local special_pressed = false
 local cycle_shot_pressed   = false
 local cycle_bullet_pressed = false
 
@@ -85,6 +89,23 @@ local function clamp(value, low, high)
     return math.min(math.max(value, low), high)
 end
 
+local function detonate(b)
+    local blast = b.blast
+    effects.spawn(blast.clip, b.x, b.y, blast.scale)
+    for i = enemies.count(), 1, -1 do
+        local e = enemies.get(i)
+        if e.state == "alive" then
+            local dx, dy = e.x - b.x, e.y - b.y
+            local r = blast.radius + e.radius
+            if dx * dx + dy * dy <= r * r then
+                e.hp = e.hp - blast.damage
+                e.flash_timer = flash.DURATION
+                if e.hp <= 0 then enemies.kill(e, clips.enemy_explode, ENEMY_EXPLODE_SCALE) end
+            end
+        end
+    end
+end
+
 local function collide_bullets_enemies()
     for bi = bullets.count(player_bullets), 1, -1 do
         local b = bullets.get(player_bullets, bi)
@@ -97,6 +118,7 @@ local function collide_bullets_enemies()
                     e.hp = e.hp - b.damage
                     e.flash_timer = flash.DURATION
                     if e.hp <= 0 then enemies.kill(e, clips.enemy_explode, ENEMY_EXPLODE_SCALE) end
+                    if b.blast then detonate(b) end
                     bullets.remove(player_bullets, bi)
                     break
                 end
@@ -117,7 +139,7 @@ local function update_enemy_fire()
                 if len > 0 then
                     bullets.spawn(enemy_bullets, clips.enemy_basic_bullet, e.x, e.y,
                         dx / len * ENEMY_BULLET_SPEED, dy / len * ENEMY_BULLET_SPEED,
-                        BULLET_LIFE, ENEMY_BULLET_RADIUS, 1)
+                        BULLET_LIFE * 2, ENEMY_BULLET_RADIUS, 1)
                 end
             end
         end
@@ -129,6 +151,7 @@ local function kill_player()
     player.flash_timer = 0
     player.invulnerable = false
     abilities.clear(player.ability_set)
+    abilities.clear(player.special_set)
     anim.play(player.anim, clips.ship_explode, true)
 end
 
@@ -144,6 +167,11 @@ local function move_player(p, dx, dy)
     local half_h = sheets.ship.frame_h * 0.5
     p.x = clamp(p.x + dx, half_w, screen.width  - half_w)
     p.y = clamp(p.y + dy, half_h, screen.height - half_h)
+end
+
+local function fire_special(p, bt)
+    bullets.spawn(player_bullets, bt.clip, p.x + 14, p.y,
+        bt.speed, 0, bt.life, bt.radius, bt.damage, bt.blast)
 end
 
 local function collide_player()
@@ -179,6 +207,7 @@ local function reset_game()
     bullets.clear(enemy_bullets)
     enemies.clear()
     abilities.clear(player.ability_set)
+    abilities.clear(player.special_set)
 
     player.x     = screen.width * 0.25
     player.y     = screen.height * 0.5
@@ -192,6 +221,7 @@ local function reset_game()
     anim.play(player.anim, clips.ship_idle, true)
 
     spawn_timer = 0
+    effects.clear()
 end
 
 function love.load()
@@ -212,7 +242,9 @@ function love.load()
     player.clips = clips
     player.move  = move_player
     player.anim  = anim.new_state(clips.ship_idle)
+    player.fire_special = fire_special
     abilities.equip(player.ability_set, "dash", player_abilities.dash)
+    abilities.equip(player.special_set, "missile", player_specials.defs.missile)
 
     reset_game()
 
@@ -223,8 +255,6 @@ function love.load()
     clips.rapid_bullet = anim.new_clip(sheets.bullets, anim.range(6, 9), 16, true)
     clips.heavy_bullet = anim.new_clip(sheets.bullets, anim.range(16, 19), 10, true)
 
-    player_weapons.bind_clips(clips)
-
     local enemy_image = love.graphics.newImage("assets/enemies.png")
     sheets.enemies = anim.new_sheet(enemy_image, ENEMY_FRAME_W, ENEMY_FRAME_H)
 
@@ -232,9 +262,16 @@ function love.load()
     clips.enemy_basic_bullet = anim.new_clip(sheets.enemies, anim.range(7, 10), 5, true)
 
     sheets.enemy_explosions = anim.new_atlas("assets/enemy_explosion_2.png")
+    sheets.bullet_explosions = anim.new_atlas("assets/enemy_explosion_1.png")
+
+    clips.blast_explode = anim.new_clip(sheets.bullet_explosions,
+        anim.stride(1, sheets.bullet_explosions.count, 2), 24, false)
 
     clips.enemy_explode = anim.new_clip(sheets.enemy_explosions,
         anim.stride(1, sheets.enemy_explosions.count, 2), ENEMY_EXPLODE_FPS, false)
+    
+    player_weapons.bind_clips(clips)
+    player_specials.bind_clips(clips)
 end
 
 local function fixed_update()
@@ -259,6 +296,11 @@ local function fixed_update()
             cycle_bullet_pressed = false
             player.bullet = player_weapons.next_bullet(player.bullet)
             player.fire_timer = 0
+        end
+
+        if special_pressed then
+            special_pressed = false
+            abilities.trigger(player.special_set, "missile", player)
         end
 
         if not abilities.active(player.ability_set, "dash") then
@@ -292,6 +334,7 @@ local function fixed_update()
         end
 
         abilities.update(player.ability_set, player, TICK)
+        abilities.update(player.special_set, player, TICK)
         anim.update(player.anim, TICK)
     end
 
@@ -316,6 +359,7 @@ local function fixed_update()
     bullets.update(player_bullets, TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     bullets.update(enemy_bullets,  TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     enemies.update(TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
+    effects.update(TICK)
 
     collide_bullets_enemies()
     collide_player()
@@ -334,6 +378,7 @@ function love.draw()
         enemies.draw()
         bullets.draw(enemy_bullets)
         bullets.draw(player_bullets)
+        effects.draw()
 
         if player.state ~= "dead" then
             if player.flash_timer > 0 then
@@ -364,6 +409,12 @@ function love.draw()
                 local b = bullets.get(player_bullets, i)
                 love.graphics.circle("line", b.x, b.y, b.radius)
             end
+
+            love.graphics.setColor(1, 0.6, 0.1, 0.5)
+            for i = 1, bullets.count(player_bullets) do
+                local b = bullets.get(player_bullets, i)
+                if b.blast then love.graphics.circle("line", b.x, b.y, b.blast.radius) end
+            end
             love.graphics.setColor(1, 1, 1, 1)
         end
     screen.finish_draw()
@@ -380,4 +431,5 @@ function love.keypressed(key)
     if key == "space" and player.state == "dead" then reset_game() end
     if key == "c" then cycle_shot_pressed = true end
     if key == "v" then cycle_bullet_pressed = true end
+    if key == "lshift" then special_pressed = true end
 end

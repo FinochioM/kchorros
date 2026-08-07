@@ -9,15 +9,12 @@ weapons.bullet_types = {
 
     { name = "rapid",  clip_name = "rapid_bullet",
       speed = 320, life = 1.4, radius = 2, damage = 1 },
-
-    { name = "heavy",  clip_name = "heavy_bullet",
-      speed = 140, life = 2.4, radius = 5, damage = 3 },
 }
 
 local function emit(pool, bt, x, y, angle)
     bullets.spawn(pool, bt.clip, x, y,
         math.cos(angle) * bt.speed, math.sin(angle) * bt.speed,
-        bt.life, bt.radius, bt.damage)
+        bt.life, bt.radius, bt.damage, bt.blast)
 end
 
 -- shot type: the firing pattern, agnostic of bullet type
@@ -46,6 +43,9 @@ function weapons.bind_clips(clips)
     for i = 1, #weapons.bullet_types do
         local bt = weapons.bullet_types[i]
         bt.clip = assert(clips[bt.clip_name], "missing clip: " .. bt.clip_name)
+        if bt.blast then
+            bt.blast.clip = assert(clips[bt.blast.clip_name], "missing clip: " .. bt.blast.clip_name)
+        end
     end
 end
 
