@@ -1,3 +1,5 @@
+local anim8 = require("lib.anim8")
+
 local anim = {}
 
 local function round(value)
@@ -12,38 +14,41 @@ function anim.new_sheet(image, frame_w, frame_h)
     assert(cols > 0 and rows > 0, string.format(
         "frame size %dx%d does not fit in a %dx%d image", frame_w, frame_h, image_w, image_h))
 
-    local quads = {}
-    for row = 0, rows - 1 do
-        for col = 0, cols - 1 do
-            quads[#quads + 1] = love.graphics.newQuad(
-                col * frame_w, row * frame_h, frame_w, frame_h, image_w, image_h)
-        end
-    end
-
     return {
         image    = image,
-        quads    = quads,
+        grid     = anim8.newGrid(frame_w, frame_h, image_w, image_h),
         cols     = cols,
         rows     = rows,
+        count    = cols * rows,
         frame_w  = frame_w,
         frame_h  = frame_h,
-        origin_x = frame_w * 0.5, -- pivot used when drawing
+        origin_x = frame_w * 0.5,
         origin_y = frame_h * 0.5,
     }
 end
 
 function anim.new_clip(sheet, frames, fps, loop)
     assert(#frames > 0, "a clip needs at least one frame")
-    local max = #sheet.quads
+    assert(fps and fps > 0, "a clip needs a positive fps")
+
+    local quads = {}
     for i = 1, #frames do
-        assert(frames[i] >= 1 and frames[i] <= max, string.format(
-            "clip frame %d out of range (sheet has %d frames)", frames[i], max))
+        local f = frames[i]
+        assert(f >= 1 and f <= sheet.count, string.format(
+            "clip frame %d out of range (sheet has %d frames)", f, sheet.count))
+        local col = (f - 1) % sheet.cols + 1
+        local row = math.floor((f - 1) / sheet.cols) + 1
+        quads[i] = sheet.grid(col, row)[1]
     end
+
+    loop = loop and true or false
+
     return {
         sheet      = sheet,
-        frames     = frames,
-        frame_time = (fps and fps > 0) and (1 / fps) or 0,
-        loop       = loop and true or false,
+        frame_time = 1 / fps,
+        loop       = loop,
+        template   = anim8.newAnimation(quads, 1 / fps, not loop and "pauseAtEnd" or nil),
+        length     = #frames,
     }
 end
 
@@ -61,57 +66,38 @@ end
 function anim.new_state(clip)
     return {
         clip     = clip,
-        frame    = 1, -- index into clip.frames, not into sheet.quads
-        time     = 0,
+        a        = clip.template:clone(),
         speed    = 1,
-        playing  = true,
         finished = false,
     }
 end
 
 function anim.play(state, clip, restart)
-    if state.clip == clip and not restart then return end
-    state.clip     = clip
-    state.frame    = 1
-    state.time     = 0
-    state.playing  = true
+    if state.clip == clip then
+        if not restart then return end
+        state.a:gotoFrame(1)
+        state.a:resume()
+    else
+        state.clip = clip
+        state.a    = clip.template:clone()
+    end
     state.finished = false
 end
 
 function anim.set_frame(state, index)
-    state.frame = index
-    state.time  = 0
+    state.a:gotoFrame(index)
 end
 
 function anim.update(state, dt)
-    local clip = state.clip
-    if not state.playing or clip.frame_time <= 0 then return end
-
-    local count = #clip.frames
-    if count <= 1 then return end
-
-    state.time = state.time + dt * state.speed
-    while state.time >= clip.frame_time do
-        state.time = state.time - clip.frame_time
-        if state.frame < count then
-            state.frame = state.frame + 1
-        elseif clip.loop then
-            state.frame = 1
-        else
-            state.playing  = false
-            state.finished = true
-            state.time     = 0
-            break
-        end
-    end
+    local a = state.a
+    if a.status ~= "running" then return end
+    a:update(dt * state.speed)
+    if a.status ~= "running" then state.finished = true end
 end
 
 function anim.draw(state, x, y, rotation, scale_x, scale_y)
-    local clip  = state.clip
-    local sheet = clip.sheet
-    local quad  = sheet.quads[clip.frames[state.frame]]
-
-    love.graphics.draw(sheet.image, quad,
+    local sheet = state.clip.sheet
+    state.a:draw(sheet.image,
         round(x), round(y),
         rotation or 0,
         scale_x or 1, scale_y or scale_x or 1,
@@ -119,7 +105,7 @@ function anim.draw(state, x, y, rotation, scale_x, scale_y)
 end
 
 function anim.duration(clip)
-    return #clip.frames * clip.frame_time
+    return clip.length * clip.frame_time
 end
 
 return anim

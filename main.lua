@@ -16,7 +16,7 @@ local SHIP_FRAME_H = 32
 local SHIP_BULLET_FRAME_W = 32
 local SHIP_BULLET_FRAME_H = 32
 
-local BULLET_SPEED = 150
+local BULLET_SPEED = 200
 local BULLET_LIFE = 2.0
 local BULLET_MARGIN = 16
 local PLAYER_FIRE_RATE = 0.5
@@ -29,9 +29,10 @@ local ENEMY_FRAME_H = 32
 local ENEMY_BULLET_RADIUS  = 4
 local ENEMY_RADIUS         = 12
 local ENEMY_HP             = 2
-local ENEMY_SPEED          = 90
-local ENEMY_BULLET_SPEED   = 100
-local ENEMY_FIRE_RATE      = 1.5
+local ENEMY_SPEED          = 100
+local ENEMY_BULLET_SPEED   = 110
+local ENEMY_FIRE_RATE      = 1.6
+local ENEMY_SCALE = 1.2
 
 local player_bullets = bullets.new_pool()
 local enemy_bullets  = bullets.new_pool()
@@ -55,7 +56,7 @@ local clips  = {}
 local player = {
     x     = 0,
     y     = 0,
-    speed = 180,
+    speed = 220,
     hp    = PLAYER_HP,
     radius = PLAYER_RADIUS,
     fire_timer  = 0,
@@ -278,7 +279,7 @@ local function fixed_update()
                 approach_speed  = ENEMY_SPEED,
                 amp_x  = ENEMY_AMP_X, amp_y  = ENEMY_AMP_Y,
                 rate_x = ENEMY_RATE_X, rate_y = ENEMY_RATE_Y,
-            })
+            }, ENEMY_SCALE)
     end
 
     update_enemy_fire()

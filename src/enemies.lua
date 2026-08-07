@@ -1,5 +1,4 @@
 local anim = require("src.anim")
-local anim  = require("src.anim")
 local flash = require("src.flash")
 
 local enemies = {}
@@ -12,7 +11,7 @@ local function acquire()
     local e = pool[active]
     if not e then
         e = { x = 0, y = 0, vx = 0, vy = 0, hp = 0, radius = 0,
-              fire_timer = 0, flash_timer = 0, t = 0,
+              fire_timer = 0, flash_timer = 0, t = 0, scale = 1,
               behavior = nil, vars = {}, anim = nil, dead = false }
         pool[active] = e
     end
@@ -24,7 +23,7 @@ local function release(index)
     active = active - 1
 end
 
-function enemies.spawn(clip, x, y, vx, vy, hp, radius, behavior, vars)
+function enemies.spawn(clip, x, y, vx, vy, hp, radius, behavior, vars, scale)
     assert(clip, "enemies.spawn: nil clip")
     local e = acquire()
     e.x, e.y   = x, y
@@ -36,6 +35,7 @@ function enemies.spawn(clip, x, y, vx, vy, hp, radius, behavior, vars)
     e.fire_timer  = 0.5
     e.flash_timer = 0
     e.behavior    = behavior
+    e.scale    = scale or 1
 
     for k in pairs(e.vars) do e.vars[k] = nil end
     if vars then for k, val in pairs(vars) do e.vars[k] = val end end
@@ -74,10 +74,10 @@ function enemies.draw()
         local e = pool[i]
         if e.flash_timer > 0 then
             flash.begin(1)
-            anim.draw(e.anim, e.x, e.y)
+            anim.draw(e.anim, e.x, e.y, 0, e.scale)
             flash.finish()
         else
-            anim.draw(e.anim, e.x, e.y)
+            anim.draw(e.anim, e.x, e.y, 0, e.scale)
         end
     end
 end
