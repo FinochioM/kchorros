@@ -34,6 +34,11 @@ end
 
 function anim.new_clip(sheet, frames, fps, loop)
     assert(#frames > 0, "a clip needs at least one frame")
+    local max = #sheet.quads
+    for i = 1, #frames do
+        assert(frames[i] >= 1 and frames[i] <= max, string.format(
+            "clip frame %d out of range (sheet has %d frames)", frames[i], max))
+    end
     return {
         sheet      = sheet,
         frames     = frames,
@@ -111,6 +116,10 @@ function anim.draw(state, x, y, rotation, scale_x, scale_y)
         rotation or 0,
         scale_x or 1, scale_y or scale_x or 1,
         sheet.origin_x, sheet.origin_y)
+end
+
+function anim.duration(clip)
+    return #clip.frames * clip.frame_time
 end
 
 return anim

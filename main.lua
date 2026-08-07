@@ -3,6 +3,8 @@ local anim   = require("src.anim")
 local bullets = require("src.bullets")
 local enemies = require("src.enemies")
 local flash = require("src.flash")
+local abilities        = require("src.abilities")
+local player_abilities = require("src.player_abilities")
 
 local INV_SQRT2 = 1 / math.sqrt(2)
 local TICK = 1 / 60
@@ -52,9 +54,15 @@ local player = {
     radius = PLAYER_RADIUS,
     fire_timer  = 0,
     flash_timer = 0,
+    invulnerable = false,
     state = "alive", -- "alive" | "dying" | "dead"
     anim  = nil,
+    clips = nil,
+    move  = nil,
+    ability_set = abilities.new_set(),
 }
+
+local dash_pressed = false
 
 local function axis(negative, positive)
     local value = 0
@@ -107,6 +115,8 @@ end
 local function kill_player()
     player.state = "dying"
     player.flash_timer = 0
+    player.invulnerable = false
+    abilities.clear(player.ability_set)
     anim.play(player.anim, clips.ship_explode, true)
 end
 
@@ -117,8 +127,15 @@ local function damage_player()
     if player.hp <= 0 then kill_player() end
 end
 
+local function move_player(p, dx, dy)
+    local half_w = sheets.ship.frame_w * 0.5
+    local half_h = sheets.ship.frame_h * 0.5
+    p.x = clamp(p.x + dx, half_w, screen.width  - half_w)
+    p.y = clamp(p.y + dy, half_h, screen.height - half_h)
+end
+
 local function collide_player()
-    if player.state ~= "alive" then return end
+    if player.state ~= "alive" or player.invulnerable then return end
 
     for i = bullets.count(enemy_bullets), 1, -1 do
         local b = bullets.get(enemy_bullets, i)
@@ -145,7 +162,7 @@ end
 
 function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
-    screen.init(480, 336)
+    screen.init(480, 360)
 
     local ship_image = love.graphics.newImage("assets/ship.png")
     sheets.ship = anim.new_sheet(ship_image, SHIP_FRAME_W, SHIP_FRAME_H)
@@ -154,10 +171,14 @@ function love.load()
     clips.ship_move_down = anim.new_clip(sheets.ship, anim.range(13, 15), 12, false)
     clips.ship_move_up = anim.new_clip(sheets.ship, anim.range(25, 27), 12, false)
     clips.ship_explode = anim.new_clip(sheets.ship, anim.range(37, 46), 14, false)
+    clips.ship_dash = anim.new_clip(sheets.ship, anim.range(50, 60), 24, false)
 
     player.x    = screen.width * 0.25
     player.y    = screen.height * 0.5
+    player.clips = clips
+    player.move = move_player
     player.anim = anim.new_state(clips.ship_idle)
+    abilities.equip(player.ability_set, "dash", player_abilities.dash)
 
     local ship_bullet_image = love.graphics.newImage("assets/ship_bullets.png")
     sheets.bullets = anim.new_sheet(ship_bullet_image, SHIP_BULLET_FRAME_W, SHIP_BULLET_FRAME_H)
@@ -178,35 +199,43 @@ local function fixed_update()
         anim.update(player.anim, TICK)
         if player.anim.finished then player.state = "dead" end
     elseif player.state == "alive" then
-        local dx = axis("left", "right")
-        local dy = axis("up", "down")
-
-        if dy < 0 then
-            anim.play(player.anim, clips.ship_move_up)
-        elseif dy > 0 then
-            anim.play(player.anim, clips.ship_move_down)
-        else
-            anim.play(player.anim, clips.ship_idle)
+        if dash_pressed then
+            dash_pressed = false
+            abilities.trigger(player.ability_set, "dash", player)
         end
 
-        if dx ~= 0 and dy ~= 0 then
-            dx, dy = dx * INV_SQRT2, dy * INV_SQRT2
+        if not abilities.active(player.ability_set, "dash") then
+            local dx = axis("left", "right")
+            local dy = axis("up", "down")
+
+            if dx ~= 0 or dy ~= 0 then
+                player.face_x, player.face_y = dx, dy
+            end
+
+            if dy < 0 then
+                anim.play(player.anim, clips.ship_move_up)
+            elseif dy > 0 then
+                anim.play(player.anim, clips.ship_move_down)
+            else
+                anim.play(player.anim, clips.ship_idle)
+            end
+
+            if dx ~= 0 and dy ~= 0 then
+                dx, dy = dx * INV_SQRT2, dy * INV_SQRT2
+            end
+
+            local step = player.speed * TICK
+            move_player(player, dx * step, dy * step)
+
+            player.fire_timer = player.fire_timer - TICK
+            if love.keyboard.isDown("z") and player.fire_timer <= 0 then
+                player.fire_timer = PLAYER_FIRE_RATE
+                bullets.spawn(player_bullets, clips.basic_bullet, player.x + 14, player.y,
+                    BULLET_SPEED, 0, BULLET_LIFE, PLAYER_BULLET_RADIUS)
+            end
         end
 
-        local step   = player.speed * TICK
-        local half_w = sheets.ship.frame_w * 0.5
-        local half_h = sheets.ship.frame_h * 0.5
-
-        player.x = clamp(player.x + dx * step, half_w, screen.width  - half_w)
-        player.y = clamp(player.y + dy * step, half_h, screen.height - half_h)
-
-        player.fire_timer = player.fire_timer - TICK
-        if love.keyboard.isDown("z") and player.fire_timer <= 0 then
-            player.fire_timer = PLAYER_FIRE_RATE
-            bullets.spawn(player_bullets, clips.basic_bullet, player.x + 14, player.y,
-                BULLET_SPEED, 0, BULLET_LIFE, PLAYER_BULLET_RADIUS)
-        end
-
+        abilities.update(player.ability_set, player, TICK)
         anim.update(player.anim, TICK)
     end
 
@@ -274,4 +303,5 @@ end
 function love.keypressed(key)
     if key == "escape" then love.event.quit() end
     if key == "f1" then debug_hitboxes = not debug_hitboxes end
+    if key == "x" then dash_pressed = true end
 end
