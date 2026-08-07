@@ -160,6 +160,24 @@ local function collide_player()
     end
 end
 
+local function reset_game()
+    bullets.clear(player_bullets)
+    bullets.clear(enemy_bullets)
+    enemies.clear()
+    abilities.clear(player.ability_set)
+
+    player.x     = screen.width * 0.25
+    player.y     = screen.height * 0.5
+    player.hp    = PLAYER_HP
+    player.state = "alive"
+    player.fire_timer   = 0
+    player.flash_timer  = 0
+    player.invulnerable = false
+    anim.play(player.anim, clips.ship_idle, true)
+
+    spawn_timer = 0
+end
+
 function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
     screen.init(480, 360)
@@ -179,6 +197,8 @@ function love.load()
     player.move = move_player
     player.anim = anim.new_state(clips.ship_idle)
     abilities.equip(player.ability_set, "dash", player_abilities.dash)
+
+    reset_game()
 
     local ship_bullet_image = love.graphics.newImage("assets/ship_bullets.png")
     sheets.bullets = anim.new_sheet(ship_bullet_image, SHIP_BULLET_FRAME_W, SHIP_BULLET_FRAME_H)
@@ -239,6 +259,8 @@ local function fixed_update()
         anim.update(player.anim, TICK)
     end
 
+    if player.state == "dead" then return end
+
     spawn_timer = spawn_timer - TICK
     if spawn_timer <= 0 then
         spawn_timer = 1.5
@@ -280,6 +302,14 @@ screen.begin_draw()
             end
         end
 
+        if player.state == "dead" then
+            local text = "PRESS SPACE TO RESTART"
+            local font = love.graphics.getFont()
+            love.graphics.print(text,
+                math.floor((screen.width - font:getWidth(text)) * 0.5),
+                math.floor(screen.height * 0.5 - font:getHeight() * 0.5))
+        end
+
         if debug_hitboxes then
             love.graphics.setColor(1, 0.2, 0.2, 0.7)
             for i = 1, enemies.count() do
@@ -304,4 +334,5 @@ function love.keypressed(key)
     if key == "escape" then love.event.quit() end
     if key == "f1" then debug_hitboxes = not debug_hitboxes end
     if key == "x" then dash_pressed = true end
+    if key == "space" and player.state == "dead" then reset_game() end
 end
