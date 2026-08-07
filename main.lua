@@ -2,6 +2,7 @@ local screen = require("src.screen")
 local anim   = require("src.anim")
 local bullets = require("src.bullets")
 local enemies = require("src.enemies")
+local flash = require("src.flash")
 
 local INV_SQRT2 = 1 / math.sqrt(2)
 local TICK = 1 / 60
@@ -16,6 +17,8 @@ local BULLET_SPEED = 150
 local BULLET_LIFE = 2.0
 local BULLET_MARGIN = 16
 local PLAYER_FIRE_RATE = 0.5
+local PLAYER_HP     = 3
+local PLAYER_RADIUS = 8
 
 local ENEMY_FRAME_W = 32
 local ENEMY_FRAME_H = 32
@@ -44,8 +47,12 @@ local clips  = {}
 local player = {
     x     = 0,
     y     = 0,
-    speed = 180, -- virtual pixels per second
-    fire_timer = 0,
+    speed = 180,
+    hp    = PLAYER_HP,
+    radius = PLAYER_RADIUS,
+    fire_timer  = 0,
+    flash_timer = 0,
+    state = "alive", -- "alive" | "dying" | "dead"
     anim  = nil,
 }
 
@@ -69,6 +76,7 @@ local function collide_bullets_enemies()
             local r = b.radius + e.radius
             if dx * dx + dy * dy <= r * r then
                 e.hp = e.hp - 1
+                e.flash_timer = flash.DURATION
                 if e.hp <= 0 then e.dead = true end
                 bullets.remove(player_bullets, bi)
                 break
@@ -96,6 +104,45 @@ local function update_enemy_fire()
     end
 end
 
+local function kill_player()
+    player.state = "dying"
+    player.flash_timer = 0
+    anim.play(player.anim, clips.ship_explode, true)
+end
+
+local function damage_player()
+    if player.state ~= "alive" then return end
+    player.hp = player.hp - 1
+    player.flash_timer = flash.DURATION
+    if player.hp <= 0 then kill_player() end
+end
+
+local function collide_player()
+    if player.state ~= "alive" then return end
+
+    for i = bullets.count(enemy_bullets), 1, -1 do
+        local b = bullets.get(enemy_bullets, i)
+        local dx, dy = b.x - player.x, b.y - player.y
+        local r = b.radius + player.radius
+        if dx * dx + dy * dy <= r * r then
+            bullets.remove(enemy_bullets, i)
+            damage_player()
+            return
+        end
+    end
+
+    for i = enemies.count(), 1, -1 do
+        local e = enemies.get(i)
+        local dx, dy = e.x - player.x, e.y - player.y
+        local r = e.radius + player.radius
+        if dx * dx + dy * dy <= r * r then
+            e.dead = true
+            damage_player()
+            return
+        end
+    end
+end
+
 function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
     screen.init(480, 336)
@@ -106,6 +153,7 @@ function love.load()
     clips.ship_idle = anim.new_clip(sheets.ship, anim.range(1, 4), 12, true)
     clips.ship_move_down = anim.new_clip(sheets.ship, anim.range(13, 15), 12, false)
     clips.ship_move_up = anim.new_clip(sheets.ship, anim.range(25, 27), 12, false)
+    clips.ship_explode = anim.new_clip(sheets.ship, anim.range(37, 46), 14, false)
 
     player.x    = screen.width * 0.25
     player.y    = screen.height * 0.5
@@ -124,6 +172,44 @@ function love.load()
 end
 
 local function fixed_update()
+    if player.flash_timer > 0 then player.flash_timer = player.flash_timer - TICK end
+
+    if player.state == "dying" then
+        anim.update(player.anim, TICK)
+        if player.anim.finished then player.state = "dead" end
+    elseif player.state == "alive" then
+        local dx = axis("left", "right")
+        local dy = axis("up", "down")
+
+        if dy < 0 then
+            anim.play(player.anim, clips.ship_move_up)
+        elseif dy > 0 then
+            anim.play(player.anim, clips.ship_move_down)
+        else
+            anim.play(player.anim, clips.ship_idle)
+        end
+
+        if dx ~= 0 and dy ~= 0 then
+            dx, dy = dx * INV_SQRT2, dy * INV_SQRT2
+        end
+
+        local step   = player.speed * TICK
+        local half_w = sheets.ship.frame_w * 0.5
+        local half_h = sheets.ship.frame_h * 0.5
+
+        player.x = clamp(player.x + dx * step, half_w, screen.width  - half_w)
+        player.y = clamp(player.y + dy * step, half_h, screen.height - half_h)
+
+        player.fire_timer = player.fire_timer - TICK
+        if love.keyboard.isDown("z") and player.fire_timer <= 0 then
+            player.fire_timer = PLAYER_FIRE_RATE
+            bullets.spawn(player_bullets, clips.basic_bullet, player.x + 14, player.y,
+                BULLET_SPEED, 0, BULLET_LIFE, PLAYER_BULLET_RADIUS)
+        end
+
+        anim.update(player.anim, TICK)
+    end
+
     spawn_timer = spawn_timer - TICK
     if spawn_timer <= 0 then
         spawn_timer = 1.5
@@ -132,43 +218,14 @@ local function fixed_update()
             -ENEMY_SPEED, 0, ENEMY_HP, ENEMY_RADIUS)
     end
 
-    local dx = axis("left", "right")
-    local dy = axis("up", "down")
-
-    if dy < 0 then
-        anim.play(player.anim, clips.ship_move_up)
-    elseif dy > 0 then
-        anim.play(player.anim, clips.ship_move_down)
-    else
-        anim.play(player.anim, clips.ship_idle)
-    end
-
-    if dx ~= 0 and dy ~= 0 then
-        dx, dy = dx * INV_SQRT2, dy * INV_SQRT2
-    end
-
-    local step   = player.speed * TICK
-    local half_w = sheets.ship.frame_w * 0.5
-    local half_h = sheets.ship.frame_h * 0.5
-
-    player.x = clamp(player.x + dx * step, half_w, screen.width  - half_w)
-    player.y = clamp(player.y + dy * step, half_h, screen.height - half_h)
-
-    player.fire_timer = player.fire_timer - TICK
-    if love.keyboard.isDown("z") and player.fire_timer <= 0 then
-        player.fire_timer = PLAYER_FIRE_RATE
-        bullets.spawn(player_bullets, clips.basic_bullet, player.x + 14, player.y,
-            BULLET_SPEED, 0, BULLET_LIFE, PLAYER_BULLET_RADIUS)
-    end
-
     update_enemy_fire()
 
     bullets.update(player_bullets, TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     bullets.update(enemy_bullets,  TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     enemies.update(TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
+    
     collide_bullets_enemies()
-
-    anim.update(player.anim, TICK)
+    collide_player()
 end
 
 function love.update(dt)
@@ -184,7 +241,15 @@ screen.begin_draw()
         enemies.draw()
         bullets.draw(enemy_bullets)
         bullets.draw(player_bullets)
-        anim.draw(player.anim, player.x, player.y)
+        if player.state ~= "dead" then
+            if player.flash_timer > 0 then
+                flash.begin(1)
+                anim.draw(player.anim, player.x, player.y)
+                flash.finish()
+            else
+                anim.draw(player.anim, player.x, player.y)
+            end
+        end
 
         if debug_hitboxes then
             love.graphics.setColor(1, 0.2, 0.2, 0.7)

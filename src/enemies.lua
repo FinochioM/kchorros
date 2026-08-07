@@ -1,4 +1,6 @@
 local anim = require("src.anim")
+local anim  = require("src.anim")
+local flash = require("src.flash")
 
 local enemies = {}
 
@@ -9,7 +11,8 @@ local function acquire()
     active = active + 1
     local e = pool[active]
     if not e then
-        e = { x = 0, y = 0, vx = 0, vy = 0, hp = 0, radius = 0, fire_timer = 0, anim = nil, dead = false }
+        e = { x = 0, y = 0, vx = 0, vy = 0, hp = 0, radius = 0,
+              fire_timer = 0, flash_timer = 0, anim = nil, dead = false }
         pool[active] = e
     end
     return e
@@ -27,8 +30,9 @@ function enemies.spawn(clip, x, y, vx, vy, hp, radius)
     e.vx, e.vy = vx, vy
     e.hp       = hp
     e.radius   = radius
-    e.dead     = false
+    e.dead = false
     e.fire_timer = 0.5
+    e.flash_timer = 0
 
     if e.anim then
         anim.play(e.anim, clip, true)
@@ -46,6 +50,8 @@ function enemies.update(dt, left, top, right, bottom)
         e.y = e.y + e.vy * dt
         anim.update(e.anim, dt)
 
+        if e.flash_timer > 0 then e.flash_timer = e.flash_timer - dt end
+
         if e.dead or e.x < left or e.x > right or e.y < top or e.y > bottom then
             release(i)
         else
@@ -57,7 +63,13 @@ end
 function enemies.draw()
     for i = 1, active do
         local e = pool[i]
-        anim.draw(e.anim, e.x, e.y)
+        if e.flash_timer > 0 then
+            flash.begin(1)
+            anim.draw(e.anim, e.x, e.y)
+            flash.finish()
+        else
+            anim.draw(e.anim, e.x, e.y)
+        end
     end
 end
 
