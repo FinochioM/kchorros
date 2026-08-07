@@ -5,6 +5,7 @@ local enemies = require("src.enemies")
 local flash = require("src.flash")
 local abilities        = require("src.abilities")
 local player_abilities = require("src.player_abilities")
+local enemy_behaviors = require("src.enemy_behaviors")
 
 local INV_SQRT2 = 1 / math.sqrt(2)
 local TICK = 1 / 60
@@ -38,6 +39,11 @@ local enemy_bullets  = bullets.new_pool()
 local PLAYER_BULLET_RADIUS = 2
 local ENEMY_BULLET_RADIUS  = 3
 local ENEMY_RADIUS         = 9
+local ENEMY_HOLD_X   = 0.55 -- fraction of screen width
+local ENEMY_AMP_X    = 40
+local ENEMY_AMP_Y    = 55
+local ENEMY_RATE_X   = 1.7
+local ENEMY_RATE_Y   = 1.1
 
 local debug_hitboxes = false
 
@@ -266,7 +272,13 @@ local function fixed_update()
         spawn_timer = 1.5
         enemies.spawn(clips.enemy_basic, screen.width + 16,
             math.random(32, screen.height - 32),
-            -ENEMY_SPEED, 0, ENEMY_HP, ENEMY_RADIUS)
+            -ENEMY_SPEED, 0, ENEMY_HP, ENEMY_RADIUS,
+            enemy_behaviors.drifter, {
+                hold_x          = screen.width * ENEMY_HOLD_X,
+                approach_speed  = ENEMY_SPEED,
+                amp_x  = ENEMY_AMP_X, amp_y  = ENEMY_AMP_Y,
+                rate_x = ENEMY_RATE_X, rate_y = ENEMY_RATE_Y,
+            })
     end
 
     update_enemy_fire()

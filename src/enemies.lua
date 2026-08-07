@@ -12,7 +12,8 @@ local function acquire()
     local e = pool[active]
     if not e then
         e = { x = 0, y = 0, vx = 0, vy = 0, hp = 0, radius = 0,
-              fire_timer = 0, flash_timer = 0, anim = nil, dead = false }
+              fire_timer = 0, flash_timer = 0, t = 0,
+              behavior = nil, vars = {}, anim = nil, dead = false }
         pool[active] = e
     end
     return e
@@ -23,16 +24,21 @@ local function release(index)
     active = active - 1
 end
 
-function enemies.spawn(clip, x, y, vx, vy, hp, radius)
+function enemies.spawn(clip, x, y, vx, vy, hp, radius, behavior, vars)
     assert(clip, "enemies.spawn: nil clip")
     local e = acquire()
     e.x, e.y   = x, y
     e.vx, e.vy = vx, vy
     e.hp       = hp
     e.radius   = radius
-    e.dead = false
-    e.fire_timer = 0.5
+    e.dead     = false
+    e.t        = 0
+    e.fire_timer  = 0.5
     e.flash_timer = 0
+    e.behavior    = behavior
+
+    for k in pairs(e.vars) do e.vars[k] = nil end
+    if vars then for k, val in pairs(vars) do e.vars[k] = val end end
 
     if e.anim then
         anim.play(e.anim, clip, true)
@@ -46,6 +52,9 @@ function enemies.update(dt, left, top, right, bottom)
     local i = 1
     while i <= active do
         local e = pool[i]
+
+        if e.behavior then e.behavior.update(e, dt) end
+
         e.x = e.x + e.vx * dt
         e.y = e.y + e.vy * dt
         anim.update(e.anim, dt)
