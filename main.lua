@@ -1,11 +1,12 @@
-local screen = require("src.screen")
-local anim   = require("src.anim")
+local screen  = require("src.screen")
+local anim    = require("src.anim")
 local bullets = require("src.bullets")
 local enemies = require("src.enemies")
-local flash = require("src.flash")
+local flash   = require("src.flash")
 local abilities        = require("src.abilities")
 local player_abilities = require("src.player_abilities")
-local enemy_behaviors = require("src.enemy_behaviors")
+local enemy_behaviors  = require("src.enemy_behaviors")
+local player_weapons   = require("src.player_weapons")
 
 local INV_SQRT2 = 1 / math.sqrt(2)
 local TICK = 1 / 60
@@ -16,40 +17,33 @@ local SHIP_FRAME_H = 32
 local SHIP_BULLET_FRAME_W = 32
 local SHIP_BULLET_FRAME_H = 32
 
-local BULLET_SPEED = 200
-local BULLET_LIFE = 2.0
+local BULLET_LIFE   = 2.0
 local BULLET_MARGIN = 16
-local PLAYER_FIRE_RATE = 0.5
 local PLAYER_HP     = 3
 local PLAYER_RADIUS = 8
 
 local ENEMY_FRAME_W = 32
 local ENEMY_FRAME_H = 32
 
-local ENEMY_BULLET_RADIUS  = 4
-local ENEMY_RADIUS         = 12
-local ENEMY_HP             = 2
-local ENEMY_SPEED          = 100
-local ENEMY_BULLET_SPEED   = 110
-local ENEMY_FIRE_RATE      = 1.6
-local ENEMY_SCALE = 1.2
+local ENEMY_BULLET_RADIUS = 3
+local ENEMY_RADIUS        = 9
+local ENEMY_HP            = 2
+local ENEMY_SPEED         = 100
+local ENEMY_BULLET_SPEED  = 110
+local ENEMY_FIRE_RATE     = 1.6
+local ENEMY_SCALE         = 1.2
 
-local ENEMY_EXPLODE_FRAME_W = 96
-local ENEMY_EXPLODE_FRAME_H = 96
-local ENEMY_EXPLODE_FPS     = 30
-local ENEMY_EXPLODE_SCALE   = 1
+local ENEMY_EXPLODE_FPS   = 30
+local ENEMY_EXPLODE_SCALE = 1
+
+local ENEMY_HOLD_X = 0.55 -- fraction of screen width
+local ENEMY_AMP_X  = 40
+local ENEMY_AMP_Y  = 55
+local ENEMY_RATE_X = 1.7
+local ENEMY_RATE_Y = 1.1
 
 local player_bullets = bullets.new_pool()
 local enemy_bullets  = bullets.new_pool()
-
-local PLAYER_BULLET_RADIUS = 2
-local ENEMY_BULLET_RADIUS  = 3
-local ENEMY_RADIUS         = 9
-local ENEMY_HOLD_X   = 0.55 -- fraction of screen width
-local ENEMY_AMP_X    = 40
-local ENEMY_AMP_Y    = 55
-local ENEMY_RATE_X   = 1.7
-local ENEMY_RATE_Y   = 1.1
 
 local debug_hitboxes = false
 
@@ -59,22 +53,26 @@ local sheets = {}
 local clips  = {}
 
 local player = {
-    x     = 0,
-    y     = 0,
-    speed = 220,
-    hp    = PLAYER_HP,
+    x      = 0,
+    y      = 0,
+    speed  = 220,
+    hp     = PLAYER_HP,
     radius = PLAYER_RADIUS,
-    fire_timer  = 0,
-    flash_timer = 0,
+    fire_timer   = 0,
+    flash_timer  = 0,
     invulnerable = false,
-    state = "alive", -- "alive" | "dying" | "dead"
-    anim  = nil,
-    clips = nil,
-    move  = nil,
+    state  = "alive", -- "alive" | "dying" | "dead"
+    anim   = nil,
+    clips  = nil,
+    move   = nil,
+    shot   = 1,
+    bullet = 1,
     ability_set = abilities.new_set(),
 }
 
-local dash_pressed = false
+local dash_pressed         = false
+local cycle_shot_pressed   = false
+local cycle_bullet_pressed = false
 
 local function axis(negative, positive)
     local value = 0
@@ -96,7 +94,7 @@ local function collide_bullets_enemies()
                 local dx, dy = b.x - e.x, b.y - e.y
                 local r = b.radius + e.radius
                 if dx * dx + dy * dy <= r * r then
-                    e.hp = e.hp - 1
+                    e.hp = e.hp - b.damage
                     e.flash_timer = flash.DURATION
                     if e.hp <= 0 then enemies.kill(e, clips.enemy_explode, ENEMY_EXPLODE_SCALE) end
                     bullets.remove(player_bullets, bi)
@@ -119,7 +117,7 @@ local function update_enemy_fire()
                 if len > 0 then
                     bullets.spawn(enemy_bullets, clips.enemy_basic_bullet, e.x, e.y,
                         dx / len * ENEMY_BULLET_SPEED, dy / len * ENEMY_BULLET_SPEED,
-                        BULLET_LIFE, ENEMY_BULLET_RADIUS)
+                        BULLET_LIFE, ENEMY_BULLET_RADIUS, 1)
                 end
             end
         end
@@ -189,6 +187,8 @@ local function reset_game()
     player.fire_timer   = 0
     player.flash_timer  = 0
     player.invulnerable = false
+    player.shot   = 1
+    player.bullet = 1
     anim.play(player.anim, clips.ship_idle, true)
 
     spawn_timer = 0
@@ -201,17 +201,17 @@ function love.load()
     local ship_image = love.graphics.newImage("assets/ship.png")
     sheets.ship = anim.new_sheet(ship_image, SHIP_FRAME_W, SHIP_FRAME_H)
 
-    clips.ship_idle = anim.new_clip(sheets.ship, anim.range(1, 4), 12, true)
+    clips.ship_idle      = anim.new_clip(sheets.ship, anim.range(1, 4), 12, true)
     clips.ship_move_down = anim.new_clip(sheets.ship, anim.range(13, 15), 12, false)
-    clips.ship_move_up = anim.new_clip(sheets.ship, anim.range(25, 27), 12, false)
-    clips.ship_explode = anim.new_clip(sheets.ship, anim.range(37, 46), 14, false)
-    clips.ship_dash = anim.new_clip(sheets.ship, anim.range(50, 60), 24, false)
+    clips.ship_move_up   = anim.new_clip(sheets.ship, anim.range(25, 27), 12, false)
+    clips.ship_explode   = anim.new_clip(sheets.ship, anim.range(37, 46), 14, false)
+    clips.ship_dash      = anim.new_clip(sheets.ship, anim.range(50, 60), 32, false)
 
-    player.x    = screen.width * 0.25
-    player.y    = screen.height * 0.5
+    player.x     = screen.width * 0.25
+    player.y     = screen.height * 0.5
     player.clips = clips
-    player.move = move_player
-    player.anim = anim.new_state(clips.ship_idle)
+    player.move  = move_player
+    player.anim  = anim.new_state(clips.ship_idle)
     abilities.equip(player.ability_set, "dash", player_abilities.dash)
 
     reset_game()
@@ -220,19 +220,21 @@ function love.load()
     sheets.bullets = anim.new_sheet(ship_bullet_image, SHIP_BULLET_FRAME_W, SHIP_BULLET_FRAME_H)
 
     clips.basic_bullet = anim.new_clip(sheets.bullets, anim.range(1, 4), 12, true)
+    clips.rapid_bullet = anim.new_clip(sheets.bullets, anim.range(6, 9), 16, true)
+    clips.heavy_bullet = anim.new_clip(sheets.bullets, anim.range(16, 19), 10, true)
+
+    player_weapons.bind_clips(clips)
 
     local enemy_image = love.graphics.newImage("assets/enemies.png")
     sheets.enemies = anim.new_sheet(enemy_image, ENEMY_FRAME_W, ENEMY_FRAME_H)
 
-    clips.enemy_basic = anim.new_clip(sheets.enemies, anim.range(1, 4), 5, true)
+    clips.enemy_basic        = anim.new_clip(sheets.enemies, anim.range(1, 4), 5, true)
     clips.enemy_basic_bullet = anim.new_clip(sheets.enemies, anim.range(7, 10), 5, true)
-    
-    local enemy_explosion_image = love.graphics.newImage("assets/enemy_explosion_1.png")
-    sheets.enemy_explosions = anim.new_sheet(enemy_explosion_image,
-        ENEMY_EXPLODE_FRAME_W, ENEMY_EXPLODE_FRAME_H)
+
+    sheets.enemy_explosions = anim.new_atlas("assets/enemy_explosion_2.png")
 
     clips.enemy_explode = anim.new_clip(sheets.enemy_explosions,
-        anim.range(1, 46), ENEMY_EXPLODE_FPS, false)
+        anim.stride(1, sheets.enemy_explosions.count, 2), ENEMY_EXPLODE_FPS, false)
 end
 
 local function fixed_update()
@@ -245,6 +247,18 @@ local function fixed_update()
         if dash_pressed then
             dash_pressed = false
             abilities.trigger(player.ability_set, "dash", player)
+        end
+
+        if cycle_shot_pressed then
+            cycle_shot_pressed = false
+            player.shot = player_weapons.next_shot(player.shot)
+            player.fire_timer = 0
+        end
+
+        if cycle_bullet_pressed then
+            cycle_bullet_pressed = false
+            player.bullet = player_weapons.next_bullet(player.bullet)
+            player.fire_timer = 0
         end
 
         if not abilities.active(player.ability_set, "dash") then
@@ -272,9 +286,8 @@ local function fixed_update()
 
             player.fire_timer = player.fire_timer - TICK
             if love.keyboard.isDown("z") and player.fire_timer <= 0 then
-                player.fire_timer = PLAYER_FIRE_RATE
-                bullets.spawn(player_bullets, clips.basic_bullet, player.x + 14, player.y,
-                    BULLET_SPEED, 0, BULLET_LIFE, PLAYER_BULLET_RADIUS)
+                player.fire_timer = player_weapons.fire(player_bullets,
+                    player.shot, player.bullet, player.x + 14, player.y)
             end
         end
 
@@ -291,9 +304,9 @@ local function fixed_update()
             math.random(32, screen.height - 32),
             -ENEMY_SPEED, 0, ENEMY_HP, ENEMY_RADIUS,
             enemy_behaviors.drifter, {
-                hold_x          = screen.width * ENEMY_HOLD_X,
-                approach_speed  = ENEMY_SPEED,
-                amp_x  = ENEMY_AMP_X, amp_y  = ENEMY_AMP_Y,
+                hold_x         = screen.width * ENEMY_HOLD_X,
+                approach_speed = ENEMY_SPEED,
+                amp_x  = ENEMY_AMP_X,  amp_y  = ENEMY_AMP_Y,
                 rate_x = ENEMY_RATE_X, rate_y = ENEMY_RATE_Y,
             }, ENEMY_SCALE)
     end
@@ -303,7 +316,7 @@ local function fixed_update()
     bullets.update(player_bullets, TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     bullets.update(enemy_bullets,  TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
     enemies.update(TICK, -BULLET_MARGIN, -BULLET_MARGIN, screen.width + BULLET_MARGIN, screen.height + BULLET_MARGIN)
-    
+
     collide_bullets_enemies()
     collide_player()
 end
@@ -317,10 +330,11 @@ function love.update(dt)
 end
 
 function love.draw()
-screen.begin_draw()
+    screen.begin_draw()
         enemies.draw()
         bullets.draw(enemy_bullets)
         bullets.draw(player_bullets)
+
         if player.state ~= "dead" then
             if player.flash_timer > 0 then
                 flash.begin(1)
@@ -364,4 +378,6 @@ function love.keypressed(key)
     if key == "f1" then debug_hitboxes = not debug_hitboxes end
     if key == "x" then dash_pressed = true end
     if key == "space" and player.state == "dead" then reset_game() end
+    if key == "c" then cycle_shot_pressed = true end
+    if key == "v" then cycle_bullet_pressed = true end
 end

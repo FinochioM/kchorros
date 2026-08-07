@@ -10,7 +10,7 @@ local function acquire(pool)
     pool.active = pool.active + 1
     local b = pool.items[pool.active]
     if not b then
-        b = { x = 0, y = 0, vx = 0, vy = 0, life = 0, radius = 0, anim = nil }
+        b = { x = 0, y = 0, vx = 0, vy = 0, life = 0, radius = 0, damage = 1, anim = nil }
         pool.items[pool.active] = b
     end
     return b
@@ -22,13 +22,14 @@ local function release(pool, index)
     pool.active = pool.active - 1
 end
 
-function bullets.spawn(pool, clip, x, y, vx, vy, life, radius)
+function bullets.spawn(pool, clip, x, y, vx, vy, life, radius, damage)
     assert(clip, "bullets.spawn: nil clip")
     local b = acquire(pool)
     b.x,  b.y  = x, y
     b.vx, b.vy = vx, vy
     b.life     = life
     b.radius   = radius or 3
+    b.damage   = damage or 1
 
     if b.anim then
         anim.play(b.anim, clip, true)
